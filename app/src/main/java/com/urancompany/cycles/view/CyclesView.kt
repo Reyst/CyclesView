@@ -1,9 +1,13 @@
 package com.urancompany.cycles.view
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
+import android.util.Log
+import android.view.MotionEvent
 import android.view.View
+import androidx.annotation.WorkerThread
 import androidx.core.graphics.transform
 import kotlin.math.cos
 import kotlin.math.sin
@@ -19,6 +23,21 @@ class CyclesView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private var currentAngle: Float = 0F
+        set(value) {
+            field = value
+            updateDay()
+        }
+
+    var selectedDay: Int = 0
+        private set(value) {
+            field = value
+
+            post { Log.wtf("INSPECT", "selectedDay: $selectedDay") }
+        }
+
+    // @oleksenko: add phase description
+
+    private var maxAngle: Float = 360F
 
     private var baseHeight: Int = 0
     private var baseWidth: Int = 0
@@ -52,8 +71,11 @@ class CyclesView @JvmOverloads constructor(
         strokeWidth = 1F
     }
 
-    private val circleParts = mutableListOf<Path>()
-    private val pathMatrix = Matrix()
+    private val _circleParts = mutableListOf<Path>()
+
+    private val circleParts
+        get() = _circleParts.map { Path(it) }
+
 
     private var handleOuterRound: RectF = RectF()
     private var handleInnerRound: RectF = RectF()
@@ -61,8 +83,15 @@ class CyclesView @JvmOverloads constructor(
     private var handleOuterColor = Color.BLACK
     private var handleInnerColor = Color.WHITE
 
+    private val rotation = Matrix()
+
+    private var isHandleTouched = false
+    private var directionSign: Int = 0
+    private var baseY = 0F
+
+    private var rotationThread: Thread? = null
+
     init {
-        //daysInCycle = 28
         val attributes = context.theme.obtainStyledAttributes(attrs, R.styleable.CyclesView, 0, 0)
         with(attributes) {
             try {
@@ -105,29 +134,36 @@ class CyclesView @JvmOverloads constructor(
     }
 
     private fun recalculate() {
-        circleParts.clear()
+        _circleParts.clear()
 
         val h = baseHeight
         val w = baseWidth
 
         val outRadius = h / 2F
 
-        circleParts.addAll(
-            listOf(
-                createRingPart(outRadius, 0F, phaseAngles[0], startBorder = BorderType.ANGLE_IN),
-                createRingPart(outRadius, phaseAngles[0], phaseAngles[1]),
-                createRingPart(outRadius, phaseAngles[0] + phaseAngles[1], phaseAngles[2]),
-                createRingPart(outRadius, phaseAngles[0] + phaseAngles[1] + phaseAngles[2],  phaseAngles[3], endBorder = BorderType.ANGLE_OUT),
-                //createRingPart(outRadius, -90F, 180F, endBorder = BorderType.ANGLE_IN),
-            )
-        )
-
         val startX = w - h.toFloat()
         centerX = startX + h / 2
         centerY = h / 2F
 
-        pathMatrix.reset()
+        val pathMatrix = Matrix()
         pathMatrix.postTranslate(centerX, centerY)
+
+        val intermediate = listOf(
+            createRingPart(outRadius, 0F, phaseAngles[0], startBorder = BorderType.ANGLE_IN),
+            createRingPart(outRadius, phaseAngles[0], phaseAngles[1]),
+            createRingPart(outRadius, phaseAngles[0] + phaseAngles[1], phaseAngles[2]),
+            createRingPart(outRadius, phaseAngles[0] + phaseAngles[1] + phaseAngles[2],  phaseAngles[3], endBorder = BorderType.ANGLE_OUT),
+            //createRingPart(outRadius, -90F, 180F, endBorder = BorderType.ANGLE_IN),
+        )
+
+        _circleParts.addAll(
+            intermediate.map {
+                it.transform(pathMatrix)
+                Path(it)
+            }
+        )
+
+        maxAngle = phaseAngles.sum()
 
         handleOuterRound = getRectForHandleOval(ANGLE_OFFSET, outRadius, handleOuterRadius)
             .apply { transform(pathMatrix) }
@@ -180,23 +216,25 @@ class CyclesView @JvmOverloads constructor(
         super.onDraw(canvas)
         canvas?.drawARGB(80, 102, 204, 255) // @oleksenko: remove
 
-        pathMatrix.preRotate(ANGLE_OFFSET + currentAngle)
+        rotation.reset()
+        rotation.preRotate(ANGLE_OFFSET + currentAngle, centerX, centerY)
 
-        circleParts
-            .forEachIndexed { index, path ->
-                val colorIndex = index % circleColors.size
-                mainPaint.color = circleColors[colorIndex]
-                path.transform(pathMatrix)
-                canvas?.drawPath(path, mainPaint)
-            }
+        circleParts.forEachIndexed { index, path ->
+            val colorIndex = index % circleColors.size
+            mainPaint.color = circleColors[colorIndex]
+
+            path.transform(rotation)
+            canvas?.drawPath(path, mainPaint)
+        }
 
         mainPaint.color = handleOuterColor
         canvas?.drawOval(handleOuterRound, mainPaint)
 
         mainPaint.color = handleInnerColor
         canvas?.drawOval(handleInnerRound, mainPaint)
-
     }
+
+
 
     private fun Path.drawRoundInEnd(radius: Float, angle: Float) {
         val oval = getRectForOval(angle, radius, ringWidth / 2F)
@@ -299,6 +337,50 @@ class CyclesView @JvmOverloads constructor(
         rLineTo(offsetX2, offsetY2)
     }
 
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent?): Boolean {
+
+        if (event != null) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    isHandleTouched = handleOuterRound.contains(event.x, event.y)
+                    directionSign = 0
+                    baseY = event.y
+
+                    rotationThread = Thread { updateCurrentAngle() }.apply { start() }
+                }
+                MotionEvent.ACTION_UP -> {
+                    isHandleTouched = false
+                    directionSign = 0
+                    rotationThread?.interrupt()
+                }
+                MotionEvent.ACTION_MOVE -> directionSign = -baseY.compareTo(event.y)
+            }
+        }
+
+        return if (isHandleTouched) true else super.onTouchEvent(event)
+    }
+
+    @WorkerThread
+    private fun updateCurrentAngle() {
+        try {
+            while (isHandleTouched) {
+                currentAngle -= directionSign * (anglePerDay / 3)
+                if (currentAngle < -maxAngle) currentAngle = -maxAngle
+                if (currentAngle > 0) currentAngle = 0F
+
+                Thread.sleep(50L)
+
+                postInvalidate()
+            }
+        } catch (e: InterruptedException) {
+            postInvalidate()
+        }
+    }
+
+    private fun updateDay() {
+        selectedDay = 1 + (currentAngle / anglePerDay).toInt()
+    }
 
     companion object {
         private const val ANGLE_OFFSET = -45F
@@ -355,4 +437,3 @@ class CyclesView @JvmOverloads constructor(
         return PhasesLengths(ph1, ph2, ph3, ph4)
     }
 }
-
