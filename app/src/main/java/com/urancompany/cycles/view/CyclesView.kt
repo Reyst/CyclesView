@@ -18,21 +18,34 @@ class CyclesView @JvmOverloads constructor(
     defStyleAttr: Int = 0,
 ) : View(context, attrs, defStyleAttr) {
 
-    //    private var currentAngle: Float = 0F
+    init {
+        initValues()
+    }
+
+
+    private var currentAngle: Float = 0F
+
+    private var baseHeight: Int = 0
+    private var baseWidth: Int = 0
 
     private var centerX: Float = 0F
     private var centerY: Float = 0F
 
-    private var startX: Float = 0F
-    private var startY: Float = 0F
-
-
     private var ringWidth: Float = 100F
 
-    private val colors = listOf(Color.RED, Color.YELLOW, Color.GREEN, Color.BLUE)
+    private var daysInCycle: Int = 28
+//        set(value) {
+//            field = value
+//            updateAngles()
+//        }
 
+    private var anglePerDay: Float = 360 / 32F
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val periodAngles = mutableListOf<Float>()
+
+    private val circleColors = listOf(Color.RED, Color.YELLOW, Color.GREEN, Color.BLUE)
+
+    private val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
         .apply {
             style = Paint.Style.FILL
             strokeWidth = 2F
@@ -41,32 +54,50 @@ class CyclesView @JvmOverloads constructor(
     private val circleParts = mutableListOf<Path>()
     private val pathMatrix = Matrix()
 
+
+    private fun initValues() {
+
+
+
+    }
+
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (h != oldh) {
+            baseHeight = h
+            baseWidth = w
 
-            circleParts.clear()
+            recalculateRing()
+        }
+    }
 
-            val outRadius = h / 2F
+    private fun recalculateRing() {
+        circleParts.clear()
 
-            circleParts.addAll(
-                listOf(
-                    createRingPart(outRadius, 10F, 70F),
-                    createRingPart(outRadius, 80F, 60F),
-                    createRingPart(outRadius, 140F, 80F),
-                    createRingPart(outRadius, 220F, 120F),
-                )
+        val h = baseHeight
+        val w = baseWidth
 
+        val outRadius = h / 2F
+
+        circleParts.addAll(
+            listOf(
+                createRingPart(outRadius, 0F, 80F, startBorder = BorderType.ANGLE_IN),
+                createRingPart(outRadius, 80F, 60F),
+                createRingPart(outRadius, 140F, 80F),
+                createRingPart(outRadius, 220F, 139F, endBorder = BorderType.ANGLE_OUT),
+                //createRingPart(outRadius, -90F, 180F, endBorder = BorderType.ANGLE_IN),
             )
 
-            startX = w - h.toFloat()
-            centerX = startX + h / 2
-            centerY = h / 2F
+        )
 
-            pathMatrix.reset()
-            pathMatrix.preRotate(-45F)
-            pathMatrix.postTranslate(centerX, centerY)
-        }
+        val startX = w - h.toFloat()
+        centerX = startX + h / 2
+        centerY = h / 2F
+
+        pathMatrix.reset()
+        //        pathMatrix.preRotate(ANGLE_OFFSET)
+        pathMatrix.postTranslate(centerX, centerY)
     }
 
     private fun createRingPart(
@@ -74,7 +105,7 @@ class CyclesView @JvmOverloads constructor(
         startAngle: Float,
         sweepAngle: Float,
         startBorder: BorderType = BorderType.ROUND_OUT,
-        endBorder: BorderType = BorderType.ROUND_IN,
+        endBorder: BorderType = BorderType.NONE,
     ): Path {
 
         val outOval = RectF(-outerRadius, -outerRadius, outerRadius, outerRadius)
@@ -85,25 +116,23 @@ class CyclesView @JvmOverloads constructor(
 
         path.arcTo(outOval, startAngle, sweepAngle)
 
-        when(endBorder) {
+        when (endBorder) {
             BorderType.ROUND_IN -> path.drawRoundInEnd(outerRadius, startAngle + sweepAngle)
             BorderType.ROUND_OUT -> path.drawRoundOutEnd(outerRadius, startAngle + sweepAngle)
-            BorderType.ANGLE_IN -> Unit
-            BorderType.ANGLE_OUT -> Unit
+            BorderType.ANGLE_IN -> path.drawAngleInEnd(startAngle + sweepAngle)
+            BorderType.ANGLE_OUT -> path.drawAngleOutEnd(startAngle + sweepAngle)
             else -> Unit
         }
 
         path.arcTo(innerOval, startAngle + sweepAngle, -sweepAngle)
 
-
-        when(startBorder) {
+        when (startBorder) {
             BorderType.ROUND_IN -> path.drawRoundInStart(outerRadius, startAngle)
             BorderType.ROUND_OUT -> path.drawRoundOutStart(outerRadius, startAngle)
-            BorderType.ANGLE_IN -> Unit
-            BorderType.ANGLE_OUT -> Unit
+            BorderType.ANGLE_IN -> path.drawAngleInStart(startAngle)
+            BorderType.ANGLE_OUT -> path.drawAngleOutStart(startAngle)
             else -> Unit
         }
-
 
         path.close()
 
@@ -112,47 +141,111 @@ class CyclesView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas?) {
         super.onDraw(canvas)
-        canvas?.drawARGB(80, 102, 204, 255)
+        canvas?.drawARGB(80, 102, 204, 255) // @oleksenko: remove
         circleParts
             .forEachIndexed { index, path ->
-            val colorIndex = index % colors.size
-            paint.color = colors[colorIndex]
-            path.transform(pathMatrix)
-            canvas?.drawPath(path, paint)
-        }
+                val colorIndex = index % circleColors.size
+                circlePaint.color = circleColors[colorIndex]
+                path.transform(pathMatrix)
+                canvas?.drawPath(path, circlePaint)
+            }
 
     }
 
-    private fun Path.drawRoundInEnd(outerRadius: Float, angle: Float) {
-        val oval = getRoundEndOval(angle, outerRadius)
+    private fun Path.drawRoundInEnd(radius: Float, angle: Float) {
+        val oval = getRoundEndOval(angle, radius)
         arcTo(oval, angle, -180F)
     }
 
-    private fun Path.drawRoundOutEnd(outerRadius: Float, angle: Float) {
-        val oval = getRoundEndOval(angle, outerRadius)
+    private fun Path.drawRoundOutEnd(radius: Float, angle: Float) {
+        val oval = getRoundEndOval(angle, radius)
         arcTo(oval, angle, 180F)
     }
 
-    private fun Path.drawRoundInStart(outerRadius: Float, angle: Float) {
-        val oval = getRoundEndOval(angle, outerRadius)
+    private fun Path.drawRoundInStart(radius: Float, angle: Float) {
+        val oval = getRoundEndOval(angle, radius)
         arcTo(oval, angle, 180F)
     }
 
-    private fun Path.drawRoundOutStart(outerRadius: Float, angle: Float) {
-        val oval = getRoundEndOval(angle, outerRadius)
+    private fun Path.drawRoundOutStart(radius: Float, angle: Float) {
+        val oval = getRoundEndOval(angle, radius)
         arcTo(oval, angle, -180F)
     }
 
-    private fun getRoundEndOval(angle: Float, outerRadius: Float): RectF {
+    private fun getRoundEndOval(angle: Float, radius: Float): RectF {
         val angleR = Math.toRadians(angle.toDouble())
 
         val roundRadius = (ringWidth) / 2F
         val src = RectF(-roundRadius, -roundRadius, roundRadius, roundRadius)
         val dstMatrix = Matrix()
-        val dx = (outerRadius - roundRadius) * cos(angleR)
-        val dy = (outerRadius - roundRadius) * sin(angleR)
+        val dx = (radius - roundRadius) * cos(angleR)
+        val dy = (radius - roundRadius) * sin(angleR)
         dstMatrix.setTranslate(dx.toFloat(), dy.toFloat())
         return src.transform(dstMatrix)
     }
 
+    private fun Path.drawAngleOutEnd(angle: Float) {
+
+        val angleR = Math.toRadians(angle.toDouble())
+        val roundRadius = ringWidth / 2F
+
+        val offsetX1: Float = (roundRadius * cos(angleR) + roundRadius * sin(angleR)).toFloat()
+        val offsetY1: Float = (roundRadius * cos(angleR) - roundRadius * sin(angleR)).toFloat()
+        rLineTo(-offsetX1, offsetY1)
+
+        val offsetX2: Float = offsetY1
+        val offsetY2: Float = offsetX1
+        rLineTo(offsetX2, offsetY2)
+
+    }
+
+    private fun Path.drawAngleInEnd(angle: Float) {
+
+        val angleR = Math.toRadians(angle.toDouble())
+        val roundRadius = ringWidth / 2F
+
+        val offsetX1: Float = (roundRadius * cos(angleR) - roundRadius * sin(angleR)).toFloat()
+        val offsetY1: Float = (roundRadius * cos(angleR) + roundRadius * sin(angleR)).toFloat()
+        rLineTo(-offsetX1, -offsetY1)
+
+        val offsetX2: Float = offsetY1
+        val offsetY2: Float = offsetX1
+        rLineTo(-offsetX2, offsetY2)
+    }
+
+    private fun Path.drawAngleOutStart(angle: Float) {
+
+        val angleR = Math.toRadians(angle.toDouble())
+        val roundRadius = ringWidth / 2F
+
+        val offsetX1: Float = (roundRadius * cos(angleR) + roundRadius * sin(angleR)).toFloat()
+        val offsetY1: Float = (roundRadius * cos(angleR) - roundRadius * sin(angleR)).toFloat()
+        rLineTo(offsetX1, -offsetY1)
+
+        val offsetX2: Float = offsetY1
+        val offsetY2: Float = offsetX1
+        rLineTo(offsetX2, offsetY2)
+
+    }
+
+    private fun Path.drawAngleInStart(angle: Float) {
+
+        val angleR = Math.toRadians(angle.toDouble())
+        val roundRadius = ringWidth / 2F
+
+        val offsetX1: Float = (roundRadius * cos(angleR) - roundRadius * sin(angleR)).toFloat()
+        val offsetY1: Float = (roundRadius * cos(angleR) + roundRadius * sin(angleR)).toFloat()
+        rLineTo(offsetX1, offsetY1)
+
+        val offsetX2: Float = -offsetY1
+        val offsetY2: Float = offsetX1
+        rLineTo(offsetX2, offsetY2)
+    }
+
+
+    companion object {
+        private const val ANGLE_OFFSET = -45F
+    }
+
 }
+
