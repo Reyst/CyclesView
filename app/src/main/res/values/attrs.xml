@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="CyclesView">
+        <attr name="ring_width" format="dimension" />
+
+        <attr name="color1" format="color" />
+        <attr name="color2" format="color" />
+        <attr name="color3" format="color" />
+        <attr name="color4" format="color" />
+
+        <attr name="handle_outer_radius" format="dimension" />
+        <attr name="handle_inner_radius" format="dimension" />
+
+        <attr name="handle_outer_color" format="color" />
+        <attr name="handle_inner_color" format="color" />
+    </declare-styleable>
+</resources>
