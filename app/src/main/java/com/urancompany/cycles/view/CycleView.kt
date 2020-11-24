@@ -12,7 +12,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
-class CyclesView @JvmOverloads constructor(
+class CycleView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
@@ -222,8 +222,7 @@ class CyclesView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas?) {
         super.onDraw(canvas)
-        canvas?.drawARGB(80, 102, 204, 255) // @oleksenko: remove
-
+        mainPaint.clearShadowLayer()
         rotation.reset()
         rotation.preRotate(ANGLE_OFFSET + currentAngle, centerX, centerY)
 
@@ -236,9 +235,11 @@ class CyclesView @JvmOverloads constructor(
         }
 
         mainPaint.color = handleOuterColor
+        mainPaint.setShadowLayer(4F, 4F,4F, Color.BLACK)
         canvas?.drawOval(handleOuterRound, mainPaint)
 
         mainPaint.color = handleInnerColor
+        mainPaint.clearShadowLayer()
         canvas?.drawOval(handleInnerRound, mainPaint)
     }
 
@@ -351,17 +352,24 @@ class CyclesView @JvmOverloads constructor(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     isHandleTouched = handleOuterRound.contains(event.x, event.y)
+                    parent.requestDisallowInterceptTouchEvent(isHandleTouched)
                     directionSign = 0
                     baseY = event.y
 
+                    //                    if (isHandleTouched) {
                     rotationThread = Thread { updateCurrentAngle() }.apply { start() }
+                    //                    }
                 }
                 MotionEvent.ACTION_UP -> {
+                    parent.requestDisallowInterceptTouchEvent(false)
                     isHandleTouched = false
                     directionSign = 0
                     rotationThread?.interrupt()
                 }
-                MotionEvent.ACTION_MOVE -> directionSign = -baseY.compareTo(event.y)
+                MotionEvent.ACTION_MOVE -> {
+                    parent.requestDisallowInterceptTouchEvent(isHandleTouched)
+                    directionSign = -baseY.compareTo(event.y)
+                }
             }
         }
 
