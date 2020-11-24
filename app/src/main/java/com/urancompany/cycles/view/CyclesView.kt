@@ -24,7 +24,7 @@ class CyclesView @JvmOverloads constructor(
             updateDay()
         }
 
-    var selectedDay: Int = 0
+    var selectedDay: Int = 1
         private set(value) {
             if (field != value && value in 1..cycle.duration) {
                 field = value
