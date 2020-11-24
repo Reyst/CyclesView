@@ -4,17 +4,13 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
-import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import androidx.annotation.WorkerThread
 import androidx.core.graphics.transform
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
-
-enum class BorderType {
-    ROUND_IN, ROUND_OUT, ANGLE_IN, ANGLE_OUT, NONE
-}
 
 class CyclesView @JvmOverloads constructor(
     context: Context,
@@ -30,12 +26,11 @@ class CyclesView @JvmOverloads constructor(
 
     var selectedDay: Int = 0
         private set(value) {
-            field = value
-
-            post { Log.wtf("INSPECT", "selectedDay: $selectedDay") }
+            if (field != value && value in 1..cycle.duration) {
+                field = value
+                post { daySelectListener?.onCycleDaySelected(cycle, value) }
+            }
         }
-
-    // @oleksenko: add phase description
 
     private var maxAngle: Float = 360F
 
@@ -50,19 +45,17 @@ class CyclesView @JvmOverloads constructor(
     private var handleOuterRadius: Float = 150F
     private var handleInnerRadius: Float = 16F
 
-    //    var selectedDay: Int = 0
-    //    private set
+    private var cycle: Cycle = Cycle(DEFAULT_CYCLE_LENGTH)
 
     var daysInCycle: Int = DEFAULT_CYCLE_LENGTH
         set(value) {
-            field = value.takeIf { it in LENGTH_RANGE } ?: DEFAULT_CYCLE_LENGTH
+            cycle = Cycle(value)
+            field = value
             updateAngles()
             invalidate()
         }
 
     private var anglePerDay: Float = 360F / 32
-
-    private var phaseAngles = emptyList<Float>()
 
     private val circleColors = mutableListOf<Int>()
 
@@ -72,10 +65,8 @@ class CyclesView @JvmOverloads constructor(
     }
 
     private val _circleParts = mutableListOf<Path>()
-
     private val circleParts
         get() = _circleParts.map { Path(it) }
-
 
     private var handleOuterRound: RectF = RectF()
     private var handleInnerRound: RectF = RectF()
@@ -91,6 +82,8 @@ class CyclesView @JvmOverloads constructor(
 
     private var rotationThread: Thread? = null
 
+    private var daySelectListener: OnCycleDaySelectedListener? = null
+
     init {
         val attributes = context.theme.obtainStyledAttributes(attrs, R.styleable.CyclesView, 0, 0)
         with(attributes) {
@@ -102,7 +95,8 @@ class CyclesView @JvmOverloads constructor(
                 circleColors.add(getColor(R.styleable.CyclesView_color3, Color.BLUE))
                 circleColors.add(getColor(R.styleable.CyclesView_color4, Color.GREEN))
 
-                handleOuterRadius = getDimension(R.styleable.CyclesView_handle_outer_radius, ringWidth * 0.7F)
+                handleOuterRadius =
+                    getDimension(R.styleable.CyclesView_handle_outer_radius, ringWidth * 0.7F)
                 handleInnerRadius = getDimension(R.styleable.CyclesView_handle_inner_radius, 16F)
 
                 handleOuterColor = getColor(R.styleable.CyclesView_handle_outer_color, Color.BLACK)
@@ -118,9 +112,6 @@ class CyclesView @JvmOverloads constructor(
     private fun updateAngles() {
         val lengthInDays = 1 + (daysInCycle.takeIf { it > 31 } ?: 31)
         anglePerDay = 360F / lengthInDays
-
-        val phases = obtainPhasesLengthsByDuration(daysInCycle)
-        phaseAngles = phases.toAngles(anglePerDay)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -149,11 +140,28 @@ class CyclesView @JvmOverloads constructor(
         pathMatrix.postTranslate(centerX, centerY)
 
         val intermediate = listOf(
-            createRingPart(outRadius, 0F, phaseAngles[0], startBorder = BorderType.ANGLE_IN),
-            createRingPart(outRadius, phaseAngles[0], phaseAngles[1]),
-            createRingPart(outRadius, phaseAngles[0] + phaseAngles[1], phaseAngles[2]),
-            createRingPart(outRadius, phaseAngles[0] + phaseAngles[1] + phaseAngles[2],  phaseAngles[3], endBorder = BorderType.ANGLE_OUT),
-            //createRingPart(outRadius, -90F, 180F, endBorder = BorderType.ANGLE_IN),
+            createRingPart(
+                outRadius,
+                startAngle = cycle.phase1.daysBefore * anglePerDay,
+                sweepAngle = cycle.phase1.length * anglePerDay,
+                startBorder = BorderType.ANGLE_IN
+            ),
+            createRingPart(
+                outRadius,
+                startAngle = cycle.phase2.daysBefore * anglePerDay,
+                sweepAngle = cycle.phase2.length * anglePerDay,
+            ),
+            createRingPart(
+                outRadius,
+                startAngle = cycle.phase3.daysBefore * anglePerDay,
+                sweepAngle = cycle.phase3.length * anglePerDay,
+            ),
+            createRingPart(
+                outRadius,
+                startAngle = cycle.phase4.daysBefore * anglePerDay,
+                sweepAngle = cycle.phase4.length * anglePerDay,
+                endBorder = BorderType.ANGLE_OUT
+            ),
         )
 
         _circleParts.addAll(
@@ -163,7 +171,7 @@ class CyclesView @JvmOverloads constructor(
             }
         )
 
-        maxAngle = phaseAngles.sum()
+        maxAngle = cycle.duration * anglePerDay
 
         handleOuterRound = getRectForHandleOval(ANGLE_OFFSET, outRadius, handleOuterRadius)
             .apply { transform(pathMatrix) }
@@ -233,7 +241,6 @@ class CyclesView @JvmOverloads constructor(
         mainPaint.color = handleInnerColor
         canvas?.drawOval(handleInnerRound, mainPaint)
     }
-
 
 
     private fun Path.drawRoundInEnd(radius: Float, angle: Float) {
@@ -379,61 +386,15 @@ class CyclesView @JvmOverloads constructor(
     }
 
     private fun updateDay() {
-        selectedDay = 1 + (currentAngle / anglePerDay).toInt()
+        selectedDay = 1 + abs(currentAngle / anglePerDay).toInt()
+    }
+
+    fun setOnCycleDaySelectedListener(listener: OnCycleDaySelectedListener?) {
+        daySelectListener = listener
     }
 
     companion object {
         private const val ANGLE_OFFSET = -45F
         private const val DEFAULT_CYCLE_LENGTH = 28
-        private val LENGTH_RANGE = 20..42
-    }
-
-    private data class PhasesLengths(
-        val phase1: Int,
-        val phase2: Int,
-        val phase3: Int,
-        val phase4: Int,
-    )
-
-    private fun PhasesLengths.toAngles(dayAngle : Float) = listOf(
-        phase1 * dayAngle,
-        phase2 * dayAngle,
-        phase3 * dayAngle,
-        phase4 * dayAngle,
-    )
-
-    private fun obtainPhasesLengthsByDuration(duration: Int): PhasesLengths {
-
-        val ph1: Int = when(duration) {
-            20 -> 4
-            in 21..25 -> 5
-            in 26..31 -> 6
-            in 32..36 -> 7
-            else -> 8
-        }
-
-        val ph2: Int = when (duration) {
-            20, 21 -> 7
-            22, 23 -> 8
-            24, 25, 26 -> 9
-            27, 28 -> 10
-            in 29..32 -> 11
-            33, 34 -> 12
-            in 35..38 -> 13
-            39 -> 14
-            else -> 15
-        }
-
-        val ph3: Int = when(duration) {
-            20 -> 3
-            in 21..24 -> 4
-            in 25..30 -> 5
-            in 31..35 -> 6
-            else -> 7
-        }
-
-        val ph4: Int = duration - ph1 - ph2 - ph3
-
-        return PhasesLengths(ph1, ph2, ph3, ph4)
     }
 }

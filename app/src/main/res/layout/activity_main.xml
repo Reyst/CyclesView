@@ -9,11 +9,12 @@
     >
 
     <com.urancompany.cycles.view.CyclesView
-        android:layout_width="300dp"
-        android:layout_height="300dp"
+        android:id="@+id/cycle"
+        android:layout_width="350dp"
+        android:layout_height="0dp"
         android:layout_marginEnd="0dp"
-        android:layout_marginTop="0dp"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginVertical="50dp"
+
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
