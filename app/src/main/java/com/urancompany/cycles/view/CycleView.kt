@@ -1,5 +1,8 @@
 package com.urancompany.cycles.view
 
+import android.animation.Animator
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
@@ -49,9 +52,19 @@ class CycleView @JvmOverloads constructor(
 
     var daysInCycle: Int = DEFAULT_CYCLE_LENGTH
         set(value) {
+            if (value in Cycle.AVAILABLE_DURATIONS) {
+                field = value
+                animateDurationChanging()
+                selectedDay = 1
+            } else throw IllegalArgumentException("duration must be in ${Cycle.AVAILABLE_DURATIONS}")
+        }
+
+
+    private var drawDaysInCycle: Int = DEFAULT_CYCLE_LENGTH
+        set(value) {
             cycle = Cycle(value)
             field = value
-            updateAngles()
+            recalculate()
             invalidate()
         }
 
@@ -95,8 +108,7 @@ class CycleView @JvmOverloads constructor(
                 circleColors.add(getColor(R.styleable.CyclesView_color3, Color.BLUE))
                 circleColors.add(getColor(R.styleable.CyclesView_color4, Color.GREEN))
 
-                handleOuterRadius =
-                    getDimension(R.styleable.CyclesView_handle_outer_radius, ringWidth * 0.7F)
+                handleOuterRadius = getDimension(R.styleable.CyclesView_handle_outer_radius, ringWidth * 0.7F)
                 handleInnerRadius = getDimension(R.styleable.CyclesView_handle_inner_radius, 16F)
 
                 handleOuterColor = getColor(R.styleable.CyclesView_handle_outer_color, Color.BLACK)
@@ -106,12 +118,11 @@ class CycleView @JvmOverloads constructor(
                 recycle()
             }
         }
-        updateAngles()
     }
 
-    private fun updateAngles() {
-        val lengthInDays = 1 + (daysInCycle.takeIf { it > 31 } ?: 31)
-        anglePerDay = 360F / lengthInDays
+    private fun calculateAngleDay(daysAmount: Int): Float {
+        val lengthInDays = 1 + (daysAmount.takeIf { it > 31 } ?: 31)
+        return 360F / lengthInDays
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -125,7 +136,7 @@ class CycleView @JvmOverloads constructor(
     }
 
     private fun recalculate() {
-        _circleParts.clear()
+        anglePerDay = calculateAngleDay(drawDaysInCycle)
 
         val h = baseHeight
         val w = baseWidth
@@ -139,37 +150,8 @@ class CycleView @JvmOverloads constructor(
         val pathMatrix = Matrix()
         pathMatrix.postTranslate(centerX, centerY)
 
-        val intermediate = listOf(
-            createRingPart(
-                outRadius,
-                startAngle = cycle.phase1.daysBefore * anglePerDay,
-                sweepAngle = cycle.phase1.length * anglePerDay,
-                startBorder = BorderType.ANGLE_IN
-            ),
-            createRingPart(
-                outRadius,
-                startAngle = cycle.phase2.daysBefore * anglePerDay,
-                sweepAngle = cycle.phase2.length * anglePerDay,
-            ),
-            createRingPart(
-                outRadius,
-                startAngle = cycle.phase3.daysBefore * anglePerDay,
-                sweepAngle = cycle.phase3.length * anglePerDay,
-            ),
-            createRingPart(
-                outRadius,
-                startAngle = cycle.phase4.daysBefore * anglePerDay,
-                sweepAngle = cycle.phase4.length * anglePerDay,
-                endBorder = BorderType.ANGLE_OUT
-            ),
-        )
-
-        _circleParts.addAll(
-            intermediate.map {
-                it.transform(pathMatrix)
-                Path(it)
-            }
-        )
+        val angles: List<Pair<Float, Float>> = calculatePathAngles(cycle)
+        fillParts(angles)
 
         maxAngle = cycle.duration * anglePerDay
 
@@ -179,6 +161,42 @@ class CycleView @JvmOverloads constructor(
         handleInnerRound = getRectForHandleOval(ANGLE_OFFSET, outRadius, handleInnerRadius)
             .apply { transform(pathMatrix) }
 
+    }
+
+    private fun fillParts(angles: List<Pair<Float, Float>>) {
+
+        val outRadius = baseHeight / 2F
+        val pathMatrix = Matrix()
+        pathMatrix.postTranslate(centerX, centerY)
+
+        _circleParts.clear()
+        angles
+            .mapIndexed { index, pair ->
+                val sb = if (index == 0) BorderType.ANGLE_IN else BorderType.ROUND_OUT
+                val eb = if (index == 3) BorderType.ANGLE_OUT else BorderType.NONE
+
+                createRingPart(
+                    outRadius,
+                    startAngle = pair.first,
+                    sweepAngle = pair.second,
+                    startBorder = sb,
+                    endBorder = eb,
+                )
+            }
+            .map {
+                it.transform(pathMatrix)
+                Path(it)
+            }
+            .also { _circleParts.addAll(it) }
+    }
+
+    private fun calculatePathAngles(cycle: Cycle, dayAngle: Float = anglePerDay): List<Pair<Float, Float>> {
+        return listOf(
+            cycle.phase1.daysBefore * dayAngle to cycle.phase1.length * dayAngle,
+            cycle.phase2.daysBefore * dayAngle to cycle.phase2.length * dayAngle,
+            cycle.phase3.daysBefore * dayAngle to cycle.phase3.length * dayAngle,
+            cycle.phase4.daysBefore * dayAngle to cycle.phase4.length * dayAngle,
+        )
     }
 
     private fun createRingPart(
@@ -348,6 +366,11 @@ class CycleView @JvmOverloads constructor(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent?): Boolean {
 
+        if (!isEnabled) {
+            parent.requestDisallowInterceptTouchEvent(false)
+            return super.onTouchEvent(event)
+        }
+
         if (event != null) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -356,9 +379,9 @@ class CycleView @JvmOverloads constructor(
                     directionSign = 0
                     baseY = event.y
 
-                    //                    if (isHandleTouched) {
-                    rotationThread = Thread { updateCurrentAngle() }.apply { start() }
-                    //                    }
+                    if (isHandleTouched) {
+                        rotationThread = Thread { updateCurrentAngle() }.apply { start() }
+                    }
                 }
                 MotionEvent.ACTION_UP -> {
                     parent.requestDisallowInterceptTouchEvent(false)
@@ -401,8 +424,55 @@ class CycleView @JvmOverloads constructor(
         daySelectListener = listener
     }
 
+    fun selectDay(day: Int) {
+        if (day in 1..cycle.duration) {
+
+            val oldAngle = currentAngle
+            val newAngle = -(day - 1) * anglePerDay
+
+            selectedDay = day
+
+            val anim = ObjectAnimator.ofFloat(this, "currentAngle", oldAngle, newAngle)
+            anim.duration = ANIMATION_DURATION
+            anim.addUpdateListener { invalidate() }
+
+            anim.start()
+        }
+    }
+
+    private fun animateDurationChanging() {
+
+        val filledAngle = cycle.duration * anglePerDay
+        val newCycle = Cycle(daysInCycle)
+        val angleOffset = currentAngle
+
+        val startAngleDay = filledAngle / newCycle.duration
+        val dayAngleDelta = calculateAngleDay(daysInCycle) - startAngleDay
+
+        val anim = ValueAnimator.ofFloat(0F, 1F)
+        anim.duration = ANIMATION_DURATION
+        anim.addUpdateListener { animator ->
+
+            val k = animator.animatedFraction
+            currentAngle = angleOffset - angleOffset * k
+            val iDayAngle = startAngleDay + dayAngleDelta * k
+            fillParts(calculatePathAngles(newCycle, iDayAngle))
+            invalidate()
+        }
+
+        anim.addListener(object : Animator.AnimatorListener {
+            override fun onAnimationStart(animation: Animator?) = Unit
+            override fun onAnimationRepeat(animation: Animator?) = Unit
+            override fun onAnimationEnd(animation: Animator?) { drawDaysInCycle = daysInCycle }
+            override fun onAnimationCancel(animation: Animator?) { drawDaysInCycle = daysInCycle }
+        })
+
+        anim.start()
+    }
+
     companion object {
         private const val ANGLE_OFFSET = -45F
         private const val DEFAULT_CYCLE_LENGTH = 28
+        private const val ANIMATION_DURATION = 500L
     }
 }

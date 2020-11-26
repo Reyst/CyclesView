@@ -164,5 +164,9 @@ class Cycle(
 
 
     }
+
+    companion object {
+        val AVAILABLE_DURATIONS = 20..42
+    }
 }
 
