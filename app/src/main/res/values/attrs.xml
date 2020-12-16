@@ -8,6 +8,8 @@
         <attr name="color3" format="color" />
         <attr name="color4" format="color" />
 
+        <attr name="angle_offset" format="float" />
+
         <attr name="handle_outer_radius" format="dimension" />
         <attr name="handle_inner_radius" format="dimension" />
 

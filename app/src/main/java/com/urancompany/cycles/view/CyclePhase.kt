@@ -1,6 +1,7 @@
 package com.urancompany.cycles.view
 
-data class CyclePhase(val period: IntRange) : ClosedRange<Int> by period {
+data class CyclePhase(val period: IntRange, val name: String = "") : ClosedRange<Int> by period {
+
     val length: Int
         get() = period.count()
 

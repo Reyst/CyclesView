@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="phase1_name">Menstrual\nphase</string>
+    <string name="phase2_name">Follicular\nphase</string>
+    <string name="phase3_name">Ovulation\nphase</string>
+    <string name="phase4_name">Luteal\nphase</string>
+</resources>
