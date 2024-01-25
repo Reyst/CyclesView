@@ -20,7 +20,7 @@ class MainActivity : AppCompatActivity() {
             .setOnClickListener {
                 cycleView.daysInCycle = (cycleView.daysInCycle + 4)
                     .takeIf { it in Cycle.AVAILABLE_DURATIONS }
-                    ?: Cycle.AVAILABLE_DURATIONS.first
+                    ?: Cycle.AVAILABLE_DURATIONS.first()
             }
 
         findViewById<Button>(R.id.day)

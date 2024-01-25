@@ -197,7 +197,7 @@ class CycleView @JvmOverloads constructor(
         return if (isHandleTouched) true else super.onTouchEvent(event)
     }
 
-    override fun onDraw(canvas: Canvas?) {
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         mainPaint.clearShadowLayer()
         rotation.reset()
@@ -208,16 +208,16 @@ class CycleView @JvmOverloads constructor(
             mainPaint.color = circleColors[colorIndex]
 
             path.transform(rotation)
-            canvas?.drawPath(path, mainPaint)
+            canvas.drawPath(path, mainPaint)
         }
 
         mainPaint.color = handleOuterColor
         mainPaint.setShadowLayer(4F, 4F,4F, Color.BLACK)
-        canvas?.drawOval(handleOuterRound, mainPaint)
+        canvas.drawOval(handleOuterRound, mainPaint)
 
         mainPaint.color = handleInnerColor
         mainPaint.clearShadowLayer()
-        canvas?.drawOval(handleInnerRound, mainPaint)
+        canvas.drawOval(handleInnerRound, mainPaint)
     }
 
 
@@ -511,10 +511,10 @@ class CycleView @JvmOverloads constructor(
         }
 
         anim.addListener(object : Animator.AnimatorListener {
-            override fun onAnimationStart(animation: Animator?) = Unit
-            override fun onAnimationRepeat(animation: Animator?) = Unit
-            override fun onAnimationEnd(animation: Animator?) { drawDaysInCycle = daysInCycle }
-            override fun onAnimationCancel(animation: Animator?) { drawDaysInCycle = daysInCycle }
+            override fun onAnimationStart(animation: Animator) = Unit
+            override fun onAnimationRepeat(animation: Animator) = Unit
+            override fun onAnimationEnd(animation: Animator) { drawDaysInCycle = daysInCycle }
+            override fun onAnimationCancel(animation: Animator) { drawDaysInCycle = daysInCycle }
         })
 
         anim.start()
