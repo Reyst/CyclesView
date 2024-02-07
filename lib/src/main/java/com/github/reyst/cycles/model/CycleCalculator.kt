@@ -16,14 +16,13 @@ class CycleGraphicsCalc(
     constructor(width: Int, height: Int) : this(width.toFloat(), height.toFloat())
 
     fun calculate(
-        cycle: Cycle,
+        angles: List<Pair<Float, Float>>,
         ringWidth: Float,
         handleOuterRadius: Float,
         handleInnerRadius: Float,
         angleOffset: Float = 0F,
     ): CycleGraphicsData {
 
-        val anglePerDay = calculateAngleDay(cycle.duration)
         val outerPartOfHandle = maxOf(0F, handleOuterRadius - (ringWidth / 2F))
         val outRadius = (baseHeight / 2F) - outerPartOfHandle
 
@@ -32,8 +31,7 @@ class CycleGraphicsCalc(
         val centerX = startX + baseHeight / 2
         val centerY = baseHeight / 2F
 
-
-        val baseDistance = outRadius - handleOuterRadius/2
+        val baseDistance = outRadius - handleOuterRadius / 2
 
         val radiansOffset = Math.toRadians(angleOffset.toDouble())
         val handleCenterX = centerX + baseDistance * cos(radiansOffset)
@@ -43,61 +41,46 @@ class CycleGraphicsCalc(
         return CycleGraphicsData(
             width = baseWidth,
             height = baseHeight,
-            anglePerDay = anglePerDay,
             centerX = centerX,
             centerY = centerY,
             ringWidth = ringWidth,
             handleInnerRadius = handleInnerRadius,
             handleOuterRadius = handleOuterRadius,
-            maxAngle = cycle.duration * anglePerDay,
             handleCenterX = handleCenterX.toFloat(),
             handleCenterY = handleCenterY.toFloat(),
-        ).updateArcs(cycle, outRadius)
-
-
-    }
-
-    private fun CycleGraphicsData.updateArcs(cycle: Cycle, outRadius: Float): CycleGraphicsData {
-
-        val pathMatrix = Matrix().apply { postTranslate(centerX, centerY) }
-        val angles: List<Pair<Float, Float>> = calculatePathAngles(cycle, anglePerDay)
-
-        return copy(
-            arcs = angles
-                .mapIndexed { index, pair ->
-                    val sb = if (index == 0) BorderType.ANGLE_IN else BorderType.ROUND_OUT
-                    val eb =
-                        if (index == angles.lastIndex) BorderType.ANGLE_OUT else BorderType.NONE
-
-                    createRingPart(
-                        outRadius,
-                        startAngle = pair.first,
-                        sweepAngle = pair.second,
-                        startBorder = sb,
-                        endBorder = eb,
-                        ringWidth = ringWidth,
-                    )
-                }
-                .map {
-                    it.transform(pathMatrix)
-                    Path(it)
-                }
+            arcs = getArcs(angles, centerX, centerY, outRadius, ringWidth)
         )
     }
 
+    private fun getArcs(
+        angles: List<Pair<Float, Float>>,
+        centerX: Float,
+        centerY: Float,
+        outRadius: Float,
+        ringWidth: Float,
+    ): List<Path> {
 
-    private fun calculateAngleDay(daysAmount: Int): Float {
-        val lengthInDays =
-            when {
-                daysAmount < 31 -> 32
-                else -> 2 + daysAmount
+        val pathMatrix = Matrix().apply { postTranslate(centerX, centerY) }
+
+        return angles
+            .mapIndexed { index, pair ->
+                val sb = if (index == 0) BorderType.ANGLE_IN else BorderType.ROUND_OUT
+                val eb =
+                    if (index == angles.lastIndex) BorderType.ANGLE_OUT else BorderType.NONE
+
+                createRingPart(
+                    outRadius,
+                    startAngle = pair.first,
+                    sweepAngle = pair.second,
+                    startBorder = sb,
+                    endBorder = eb,
+                    ringWidth = ringWidth,
+                )
             }
-
-        return 360F / lengthInDays
-    }
-
-    private fun calculatePathAngles(cycle: Cycle, dayAngle: Float): List<Pair<Float, Float>> {
-        return cycle.phases.map { it.daysBefore * dayAngle to it.length * dayAngle }
+            .map {
+                it.transform(pathMatrix)
+                Path(it)
+            }
     }
 
     private fun createRingPart(
@@ -160,20 +143,6 @@ class CycleGraphicsCalc(
         dstMatrix.setTranslate(dx.toFloat(), dy.toFloat())
         return src.transform(dstMatrix)
     }
-
-    /*
-        fun getRectForHandleOval(angle: Float, outerRadius: Float, roundRadius: Float): RectF {
-            val angleR = Math.toRadians(angle.toDouble())
-            val src = RectF(-roundRadius, -roundRadius, roundRadius, roundRadius)
-
-            val dstMatrix = Matrix()
-            val dx = (outerRadius - ringWidth / 2F) * cos(angleR)
-            val dy = (outerRadius - ringWidth / 2F) * sin(angleR)
-            dstMatrix.setTranslate(dx.toFloat(), dy.toFloat())
-            return src.transform(dstMatrix)
-        }
-    */
-
 
     private fun Path.drawRoundInEnd(radius: Float, angle: Float, ringWidth: Float) {
         val oval = getRectForOval(angle, radius, ringWidth / 2F)
@@ -258,16 +227,12 @@ class CycleGraphicsCalc(
 data class CycleGraphicsData(
     val width: Float = 0F,
     val height: Float = 0F,
-    val anglePerDay: Float = 0F,
     val centerX: Float = 0F,
     val centerY: Float = 0F,
     val arcs: List<Path> = emptyList(),
     val handleCenterX: Float = 0F,
     val handleCenterY: Float = 0F,
-
-    val maxAngle: Float = 360F,
     val ringWidth: Float = 0F,
-
     val handleOuterRadius: Float = 0F,
     val handleInnerRadius: Float = 0F,
 )

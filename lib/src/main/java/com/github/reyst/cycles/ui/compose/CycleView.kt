@@ -1,6 +1,5 @@
 package com.github.reyst.cycles.ui.compose
 
-import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -10,8 +9,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,7 +28,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.github.reyst.cycles.model.Cycle
 import com.github.reyst.cycles.model.CycleGraphicsCalc
 import com.github.reyst.cycles.model.CycleGraphicsData
 import com.github.reyst.cycles.model.CyclePhase
@@ -46,9 +44,9 @@ fun provideRandomColors(amount: Int): List<Color> {
 
 @Composable
 fun CycleView(
-    cycle: Cycle,
+    state: CycleViewState,
     modifier: Modifier = Modifier,
-    colors: List<Color> = provideRandomColors(cycle.phases.size),
+    colors: List<Color> = provideRandomColors(state.cycle.phases.size),
     ringWidth: Dp = 40.dp,
     angleOffset: Float = -45F,
     handleOuterRadius: Dp = 60.dp,
@@ -59,26 +57,25 @@ fun CycleView(
 ) {
 
     val density = LocalDensity.current.density
-    var graphicsData by remember { mutableStateOf(CycleGraphicsData()) }
+    var graphicsData by remember(state.cycle) { mutableStateOf(CycleGraphicsData()) }
 
-    var handleShift by remember { mutableFloatStateOf(0F) }
-    var isHandlePressed by remember { mutableStateOf(false) }
-    var handlePressedAt by remember { mutableFloatStateOf(0F) }
     val scope = rememberCoroutineScope()
 
-    var angle by remember { mutableFloatStateOf(0F) }
+    if (daySelectListener != null) {
+        LaunchedEffect(key1 = state.day) {
+            daySelectListener.onCycleDaySelected(state.cycle, state.day)
+        }
+    }
 
     Box(
         modifier = modifier
             .onSizeChanged {
                 val (width, height) = it
-                Log.wtf("INSPECT", "Box: onSizeChanged($width, $height) - unchecked")
 
                 if (graphicsData.height.toInt() != height || graphicsData.width.toInt() != width) {
-                    Log.wtf("INSPECT", "Box: onSizeChanged($width, $height)")
 
                     graphicsData = CycleGraphicsCalc(width, height).calculate(
-                        cycle = cycle,
+                        angles = state.angles,
                         ringWidth = (ringWidth.value * density),
                         handleInnerRadius = handleInnerRadius.value * density,
                         handleOuterRadius = handleOuterRadius.value * density,
@@ -96,13 +93,13 @@ fun CycleView(
                         graphicsData.centerX / graphicsData.width,
                         graphicsData.centerY / graphicsData.height,
                     )
-                    rotationZ = angle + angleOffset
+                    rotationZ = state.angle + angleOffset
                 },
         )
 
         DrawHandle(
             graphicsData = graphicsData,
-            shift = handleShift,
+            shift = state.handleShift,
             handleOuterColor = handleOuterColor,
             handleInnerColor = handleInnerColor,
             modifier = Modifier
@@ -114,31 +111,25 @@ fun CycleView(
                 }
                 .shiftable(
                     onTouch = { _, y ->
-                        isHandlePressed = true
-                        handlePressedAt = y
+                        state.isHandlePressed = true
+                        state.handlePressedAt = y
 
                         scope.launch {
-                            while (isHandlePressed) {
+                            while (state.isHandlePressed) {
                                 delay(150)
-                                val angleStep =
-                                    graphicsData.anglePerDay * (handleShift / graphicsData.handleOuterRadius)
-                                angle = (angle - angleStep).coerceIn(-graphicsData.maxAngle, 0F)
+                                state.updateAngle(state.handleShift / graphicsData.handleOuterRadius)
                             }
                         }
                     },
-                    onRelease = {
-                        isHandlePressed = false
-                        handleShift = 0F
-                    },
+                    onRelease = { state.isHandlePressed = false },
                 ) { _, y ->
-                    handleShift = (y - handlePressedAt)
+                    state.handleShift = (y - state.handlePressedAt)
                         .coerceIn(
                             -graphicsData.handleOuterRadius,
                             graphicsData.handleOuterRadius
                         )
                 }
         )
-
     }
 }
 
@@ -211,7 +202,7 @@ fun CycleViewPreview() {
     )
 
     CycleView(
-        Cycle(31),
+        CycleViewState(31),
         handleOuterRadius = 42.dp,
         handleInnerRadius = 8.dp,
         modifier = Modifier

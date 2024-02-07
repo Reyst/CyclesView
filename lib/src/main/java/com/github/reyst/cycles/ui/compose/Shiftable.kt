@@ -9,20 +9,22 @@ import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.ObsoleteCoroutinesApi
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
 
 fun Modifier.shiftable(
     onTouch: (x: Float, y: Float) -> Unit = { _, _ -> },
     onRelease: () -> Unit = { },
     callback: (x: Float, y: Float) -> Unit,
-    ) = this then ShiftableElement(onTouch, onRelease, callback)
+) = this then ShiftableElement(onTouch, onRelease, callback)
 
 class ShiftableElement(
     private val onTouch: (x: Float, y: Float) -> Unit,
     private val onRelease: () -> Unit,
-    private val callback: (x: Float, y: Float) -> Unit
-): ModifierNodeElement<OnShiftEventNode>() {
+    private val callback: (x: Float, y: Float) -> Unit,
+) : ModifierNodeElement<OnShiftEventNode>() {
 
     override fun create() = OnShiftEventNode(onTouch, onRelease, callback)
     override fun update(node: OnShiftEventNode) {
@@ -63,30 +65,31 @@ class OnShiftEventNode(
     var onTouch: (x: Float, y: Float) -> Unit,
     var onRelease: () -> Unit,
     var callback: (x: Float, y: Float) -> Unit,
-): PointerInputModifierNode, Modifier.Node() {
+) : PointerInputModifierNode, Modifier.Node() {
 
-    private var eventChannel = Channel<PointerInputChange>(Channel.CONFLATED)
+    private var eventChannel: SendChannel<PointerInputChange> =
+        Channel<PointerInputChange>(Channel.CONFLATED).apply { close() }
 
+    @OptIn(ObsoleteCoroutinesApi::class)
     override fun onPointerEvent(
         pointerEvent: PointerEvent,
         pass: PointerEventPass,
         bounds: IntSize,
     ) {
-//        Log.wtf("SHIFTABLE", "onPointerEvent: ($pass, event: $pointerEvent")
-
         if (pass == PointerEventPass.Initial) {
             val changes = pointerEvent.changes.first()
             when {
                 changes.pressed && !changes.previousPressed -> {
 
-                    eventChannel = Channel(Channel.CONFLATED)
-                    coroutineScope.launch {
+                    eventChannel = coroutineScope.actor(
+                        capacity = Channel.CONFLATED,
+                        onCompletion = { onRelease() }
+                    ) {
                         handleEvent(changes, onTouch)
-                        for (change in eventChannel) handleEvent(change, callback)
-
-                        onRelease()
+                        for (change in channel) handleEvent(change, callback)
                     }
                 }
+
                 changes.pressed && changes.previousPressed -> eventChannel.trySend(changes)
                 !changes.pressed && changes.previousPressed -> eventChannel.close()
             }
