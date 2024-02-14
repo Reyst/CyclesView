@@ -1,26 +1,23 @@
 package com.github.reyst.cycles.ui.compose
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asComposePath
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -29,7 +26,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.github.reyst.cycles.model.CycleGraphicsCalc
-import com.github.reyst.cycles.model.CycleGraphicsData
 import com.github.reyst.cycles.model.CyclePhase
 import com.github.reyst.cycles.model.CycleSettings
 import com.github.reyst.cycles.model.OnCycleDaySelectedListener
@@ -56,10 +52,28 @@ fun CycleView(
     daySelectListener: OnCycleDaySelectedListener? = null,
 ) {
 
-    val density = LocalDensity.current.density
-    var graphicsData by remember(state.cycle) { mutableStateOf(CycleGraphicsData()) }
-
     val scope = rememberCoroutineScope()
+
+    val density = LocalDensity.current.density
+
+    var circleSize by remember { mutableStateOf(Size(0F, 0F)) }
+    var circleCenter by remember { mutableStateOf(Offset(0F, 0F)) }
+    var handleCenter by remember { mutableStateOf(Offset(0F, 0F)) }
+    var outRadius by remember { mutableFloatStateOf(0F) }
+
+    val handleOutR = remember(
+        key1 = handleOuterRadius,
+        key2 = density,
+    ) { handleOuterRadius.value * density }
+    val handleInR = remember(
+        key1 = handleInnerRadius,
+        key2 = density,
+    ) { handleInnerRadius.value * density }
+    val ringWidthPx = remember(
+        key1 = ringWidth.value,
+        key2 = density,
+    ) { ringWidth.value * density }
+
 
     if (daySelectListener != null) {
         LaunchedEffect(key1 = state.day) {
@@ -71,42 +85,49 @@ fun CycleView(
         modifier = modifier
             .onSizeChanged {
                 val (width, height) = it
-
-                if (graphicsData.height.toInt() != height || graphicsData.width.toInt() != width) {
-
-                    graphicsData = CycleGraphicsCalc(width, height).calculate(
-                        angles = state.angles,
-                        ringWidth = (ringWidth.value * density),
-                        handleInnerRadius = handleInnerRadius.value * density,
-                        handleOuterRadius = handleOuterRadius.value * density,
-                        angleOffset = angleOffset,
-                    )
+                if (circleSize.height.toInt() != height || circleSize.width.toInt() != width) {
+                    CycleGraphicsCalc(width, height)
+                        .calculate(
+                            ringWidth = ringWidthPx,
+                            handleOuterRadius = handleOutR,
+                            angleOffset = angleOffset,
+                        )
+                        .also { data ->
+                            circleSize = data.size
+                            circleCenter = data.center
+                            handleCenter = data.handleCenter
+                            outRadius = data.outRadius
+                        }
                 }
             }
     ) {
         DrawCircle(
-            graphicsData = graphicsData,
+            center = circleCenter,
+            angles = state.angles,
             colors = colors,
+            outRadius = outRadius,
+            ringWidth = ringWidthPx,
             modifier = Modifier
                 .graphicsLayer {
                     transformOrigin = TransformOrigin(
-                        graphicsData.centerX / graphicsData.width,
-                        graphicsData.centerY / graphicsData.height,
+                        circleCenter.x / circleSize.width,
+                        circleCenter.y / circleSize.height,
                     )
                     rotationZ = state.angle + angleOffset
                 },
         )
 
         DrawHandle(
-            graphicsData = graphicsData,
+            handleOutR,
+            handleInR,
             shift = state.handleShift,
             handleOuterColor = handleOuterColor,
             handleInnerColor = handleInnerColor,
             modifier = Modifier
                 .offset {
                     IntOffset(
-                        x = (graphicsData.handleCenterX - graphicsData.handleOuterRadius).toInt(),
-                        y = (graphicsData.handleCenterY - graphicsData.handleOuterRadius).toInt(),
+                        x = (handleCenter.x - handleOutR).toInt(),
+                        y = (handleCenter.y - handleOutR).toInt(),
                     )
                 }
                 .shiftable(
@@ -117,71 +138,16 @@ fun CycleView(
                         scope.launch {
                             while (state.isHandlePressed) {
                                 delay(150)
-                                state.updateAngle(state.handleShift / graphicsData.handleOuterRadius)
+                                state.updateAngle(state.handleShift / handleOutR)
                             }
                         }
                     },
                     onRelease = { state.isHandlePressed = false },
                 ) { _, y ->
                     state.handleShift = (y - state.handlePressedAt)
-                        .coerceIn(
-                            -graphicsData.handleOuterRadius,
-                            graphicsData.handleOuterRadius
-                        )
+                        .coerceIn(-handleOutR, handleOutR)
                 }
         )
-    }
-}
-
-@Composable
-private fun DrawHandle(
-    graphicsData: CycleGraphicsData,
-    shift: Float,
-    handleOuterColor: Color,
-    handleInnerColor: Color,
-    modifier: Modifier = Modifier,
-) {
-    val diameterDp: Dp = with(LocalDensity.current) { (2 * graphicsData.handleOuterRadius).toDp() }
-
-    Canvas(
-        modifier = modifier
-            .width(diameterDp)
-            .height(diameterDp)
-    ) {
-        translate(top = shift) {
-            drawCircle(
-                color = handleOuterColor,
-                radius = graphicsData.handleOuterRadius,
-                center = Offset(
-                    graphicsData.handleOuterRadius,
-                    graphicsData.handleOuterRadius,
-                ),
-            )
-            drawCircle(
-                color = handleInnerColor,
-                radius = graphicsData.handleInnerRadius,
-                center = Offset(
-                    graphicsData.handleOuterRadius,
-                    graphicsData.handleOuterRadius,
-                ),
-            )
-        }
-    }
-}
-
-@Composable
-private fun DrawCircle(
-    graphicsData: CycleGraphicsData,
-    colors: List<Color>,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier.fillMaxSize()) {
-        graphicsData
-            .arcs
-            .forEachIndexed { index, path ->
-                val colorIndex = index % colors.size
-                drawPath(path = path.asComposePath(), color = colors[colorIndex])
-            }
     }
 }
 

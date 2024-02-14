@@ -8,4 +8,7 @@ data class CyclePhase(val period: IntRange, val name: String = "") : ClosedRange
     val daysBefore: Int
         get() = period.first - 1
 
+    val end: Int
+        get() = period.last
+
 }

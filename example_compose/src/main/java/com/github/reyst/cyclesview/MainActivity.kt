@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -21,7 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.github.reyst.cycles.model.CycleSettings
 import com.github.reyst.cycles.ui.compose.CycleView
+import com.github.reyst.cycles.ui.compose.CycleViewState
 import com.github.reyst.cycles.ui.compose.rememberCycleViewState
 import com.github.reyst.cyclesview.ui.theme.CyclesViewTheme
 import kotlinx.coroutines.launch
@@ -73,30 +76,58 @@ fun Demo() {
         )
 
         Column(
-            modifier = Modifier.offset(x = 15.dp, y = 300.dp)
+            modifier = Modifier
+                .offset(x = 15.dp, y = 300.dp)
+                .wrapContentHeight()
         ) {
 
             Button(
                 onClick = {
-                    scope.launch {
-                        cycleState.setDay(1)
+                    with(cycleState) {
+                        setDay(getNexDay(3))
                     }
                 }
-            ) {
-                Text(text = "day 1 fast")
-            }
+            ) { Text(text = "+3 fast") }
 
             Button(
                 onClick = {
                     scope.launch {
-                        cycleState.setDayTo(20, 1000)
+                        with(cycleState) {
+                            selectDay(getNexDay(3), 300)
+                        }
                     }
                 }
-            ) {
-                Text(text = "day 20 animated")
-            }
+            ) { Text(text = "+3 animated") }
+
+            Button(
+                onClick = {
+                    Log.w("INSPECT", "click \"increase length +3 fast\"")
+                    cycleState.setCycleDuration(cycleState.getNextDuration(3))
+                }
+            ) { Text(text = "increase length +3 fast") }
+
+            Button(
+                onClick = {
+                    scope.launch {
+                        Log.w("INSPECT", "click \"increase length +3 animated\"")
+                        cycleState.resizeCycleTo(cycleState.getNextDuration(3))
+                    }
+                }
+            ) { Text(text = "increase length +3 animated") }
         }
     }
+}
+
+fun CycleViewState.getNextDuration(step: Int): Int {
+    return (cycle.duration + step)
+        .takeIf { it in CycleSettings.durations }
+        ?: CycleSettings.durations.first()
+}
+
+private fun CycleViewState.getNexDay(step: Int): Int {
+    return (day + step)
+        .takeIf { it in 1..cycle.duration }
+        ?: 1
 }
 
 

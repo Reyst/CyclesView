@@ -1,5 +1,6 @@
 package com.github.reyst.cycles.ui.compose
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
@@ -11,6 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.github.reyst.cycles.model.Cycle
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @Composable
@@ -53,46 +57,85 @@ class CycleViewState private constructor(private val stateData: StateData) {
             stateData.handlePressedAt = value
         }
 
-    val angles: List<Pair<Float, Float>>
-        get() = cycle
-            .phases
-            .map { it.daysBefore * stateData.anglePerDay to it.length * stateData.anglePerDay }
+    var angles by mutableStateOf(calculateAngles())
+        private set
 
-    private val maxAngle = cycle.duration * stateData.anglePerDay - 1
+    private val maxAngle
+        get() = cycle.duration * stateData.anglePerDay - 1
+
+    private fun calculateAngles(
+        cycle: Cycle = stateData.cycle,
+        dayAngle: Float = stateData.anglePerDay,
+    ) = cycle.phases.map { it.daysBefore * dayAngle to it.end * dayAngle }
+
 
     fun updateAngle(k: Float) {
         val angleStep = stateData.anglePerDay * k
         stateData.angle = (angle - angleStep).coerceIn(-maxAngle, 0F)
     }
 
-    suspend fun setDay(day: Int) = setDayTo(day, 0)
-    suspend fun setDayTo(day: Int, duration: Int = 1_000) {
+    private fun getAngleForDay(day: Int): Float = -(day - 1) * stateData.anglePerDay
 
+    fun setDay(day: Int) {
+        if (day in 1..cycle.duration) stateData.angle = getAngleForDay(day)
+    }
+
+    suspend fun selectDay(day: Int, duration: Int = 500) {
         if (day in 1..cycle.duration) {
-            val newAngle = -(day-1) * stateData.anglePerDay
-            if (duration == 0) {
-                stateData.angle = newAngle
-            } else {
+            animate(
+                initialValue = stateData.angle,
+                targetValue = getAngleForDay(day),
+                animationSpec = tween(durationMillis = duration, easing = LinearOutSlowInEasing)
+            ) { value, _ -> stateData.angle = value }
+        }
+    }
+
+    fun setCycleDuration(days: Int) = setCycle(Cycle(days))
+
+    suspend fun resizeCycleTo(days: Int, duration: Int = 500) {
+
+        val filledAngle = cycle.duration * stateData.anglePerDay
+        val newCycle = Cycle(days)
+
+        val startAngleDay = filledAngle / newCycle.duration
+        val dayAngleDelta = stateData.calculateAngleDay(days) - startAngleDay
+
+        val ch = Channel<Float>(Channel.CONFLATED)
+
+        coroutineScope {
+            launch {
+                for (angle in ch) {
+                    stateData.anglePerDay = angle
+                    angles = calculateAngles(newCycle, angle)
+                }
+                setCycle(newCycle)
+            }
+
+            launch {
                 animate(
-                    initialValue = stateData.angle,
-                    targetValue = newAngle,
-                    animationSpec = tween(durationMillis = duration, easing = LinearOutSlowInEasing)
-                ) { value, velocity ->
-                    stateData.angle = value
+                    initialValue = 0F,
+                    targetValue = 1F,
+                    animationSpec = tween(durationMillis = duration, easing = LinearEasing),
+                ) { value, _ ->
+                    ch.trySend(startAngleDay + dayAngleDelta * value)
+                    if (value == 1F) ch.close()
                 }
             }
         }
     }
 
+    private fun setCycle(cycle: Cycle) {
+        stateData.cycle = cycle
+        stateData.anglePerDay = stateData.calculateAngleDay(cycle.duration)
+        angles = calculateAngles()
+        setDay(stateData.day.takeIf { it <= cycle.duration } ?: 1)
+    }
 }
 
-internal class StateData(
-    duration: Int,
-) {
+internal class StateData(duration: Int) {
 
-    var cycle by mutableStateOf(Cycle(duration))
+    var cycle = Cycle(duration)
     var anglePerDay: Float = calculateAngleDay(duration)
-        private set
 
     var angle by mutableFloatStateOf(0F)
 
@@ -102,13 +145,9 @@ internal class StateData(
     var isHandlePressed by mutableStateOf(false)
     var handlePressedAt by mutableFloatStateOf(0F)
 
-
-    private fun calculateAngleDay(daysAmount: Int): Float {
-        val lengthInDays = when {
-            daysAmount < 31 -> 32
-            else -> 2 + daysAmount
-        }
-
+    internal fun calculateAngleDay(daysAmount: Int): Float {
+        val lengthInDays = if (daysAmount < 31) 32 else 2 + daysAmount
         return 360F / lengthInDays
     }
 }
+
