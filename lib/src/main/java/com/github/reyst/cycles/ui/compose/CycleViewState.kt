@@ -12,9 +12,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.github.reyst.cycles.model.Cycle
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @Composable
@@ -100,28 +97,17 @@ class CycleViewState private constructor(private val stateData: StateData) {
         val startAngleDay = filledAngle / newCycle.duration
         val dayAngleDelta = stateData.calculateAngleDay(days) - startAngleDay
 
-        val ch = Channel<Float>(Channel.CONFLATED)
-
-        coroutineScope {
-            launch {
-                for (angle in ch) {
-                    stateData.anglePerDay = angle
-                    angles = calculateAngles(newCycle, angle)
-                }
-                setCycle(newCycle)
-            }
-
-            launch {
-                animate(
-                    initialValue = 0F,
-                    targetValue = 1F,
-                    animationSpec = tween(durationMillis = duration, easing = LinearEasing),
-                ) { value, _ ->
-                    ch.trySend(startAngleDay + dayAngleDelta * value)
-                    if (value == 1F) ch.close()
-                }
-            }
+        animate(
+            initialValue = 0F,
+            targetValue = 1F,
+            animationSpec = tween(durationMillis = duration, easing = LinearEasing),
+        ) { value, _ ->
+            val angle = startAngleDay + dayAngleDelta * value
+            stateData.anglePerDay = angle
+            angles = calculateAngles(newCycle, angle)
         }
+
+        setCycle(newCycle)
     }
 
     private fun setCycle(cycle: Cycle) {
